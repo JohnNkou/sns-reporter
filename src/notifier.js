@@ -61,7 +61,11 @@ export default class Notifier extends EventEmitter{
 
 				console.log("Sending Success");
 
-				to_send.forEach((r)=> this.#queue.delete(r.Id));
+				to_send.forEach((r)=> {
+					if(!this.#queue.delete(r.Id)){
+						console.error("RECORD COULDN'T BE DELETED FROM THE QUEUE",r);
+					}
+				});
 			}
 		}, INTERVAL)
 	}
@@ -75,11 +79,15 @@ export default class Notifier extends EventEmitter{
 					status: SEND_STATUS.WAITING,
 					data
 				});
+
+				return true;
 			}
 			else{
 				throw Error("Data should have a subject and a message");
 			}
 		}
+
+		return false;
 	}
 
 	async send_message(Subject,Message){

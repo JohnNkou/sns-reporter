@@ -1,49 +1,67 @@
 import { SNSClient, PublishCommand, PublishBatchCommand } from '@aws-sdk/client-sns'
+import { EventEmitter } from 'node:events'
 import beautify from 'beautify'
+import { is_sns_error, is_fatal } from './utils.js'
+import { SEND_STATUS } from './constant.js'
 
-const { TOPIC_ARN } = process.env;
-let INTERVAL = process.env.INTERVAL || 5000;
+const INTERVAL = process.env.INTERVAL || 5000;
 
-if(!TOPIC_ARN){
-	throw Error("NO TOPIC ARN GIVEN");
-}
-
-export default class Notifier{
+export default class Notifier extends EventEmitter{
 	#client;
 	#interval;
 	#queue;
+	#topic_arn;
+	fatal;
 
-	constructor(){
+	constructor(topic_arn){
+		super();
 		this.#client = new SNSClient({ region:'us-east-1' });
+		this.#topic_arn = topic_arn;
 		this.#queue = new Map();
+		this.send_later = this.send_later.bind(this);
+		this.send_message = this.send_message.bind(this);
 
 		this.#interval = setInterval(async ()=>{
 			let to_send = [];
 
-			this.#queue.forEach((data,Id)=> to_send.push({
-				Id,
-				Message: data.message,
-				Subject: data.subject
-			}));
+			this.#queue.forEach((payload,Id)=> {
+				if(payload.status == SEND_STATUS.WAITING){
+					to_send.push({
+						Id,
+						Message: payload.data.message,
+						Subject: payload.data.subject
+					})
+				}
+			});
 
 			if(to_send.length){
 				console.log("Sending Batch Message");
 
 				let command = new PublishCommand({
-					TopicArn: TOPIC_ARN,
+					TopicArn: this.#topic_arn,
 					Subject:"Erreur Rapport",
 					Message: beautify(JSON.stringify(to_send),{ format:'json' })
 				}),
 				response = await this.#client.send(command).catch((error)=>({error}));
 
 				if(response.error){
-					return console.error("Error while trying to send interval publish",response.error);
+					console.error("Error while trying to send interval publish",response.error);
+
+					if(is_sns_error(response.error)){
+						if(!is_fatal(response.error)){
+							return;
+						}
+					}
+
+					this.fatal = true;
+					this.emit('fatal',response.error);
+
+					return;
 				}
 
+				console.log("Sending Success");
+
 				to_send.forEach((r)=> this.#queue.delete(r.Id));
-			}
-			else{
-				console.log("Nothing to publish");
 			}
 		}, INTERVAL)
 	}
@@ -53,7 +71,10 @@ export default class Notifier{
 
 		if(!queue.has(id)){
 			if(data.subject && data.message){
-				queue.set(id,data);
+				queue.set(id,{
+					status: SEND_STATUS.WAITING,
+					data
+				});
 			}
 			else{
 				throw Error("Data should have a subject and a message");
@@ -61,11 +82,14 @@ export default class Notifier{
 		}
 	}
 
-	async send_messages(Subject,Message){
-		const input = new PublishCommand({
-			TopicArn: TOPIC_ARN,
+	async send_message(Subject,Message){
+		const command = new PublishCommand({
+			TopicArn: this.#topic_arn,
 			Message,
 			Subject
-		})
+		}),
+		response = await this.#client.send(command).catch((error)=>({error}));
+
+		return response;
 	}
 }

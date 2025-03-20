@@ -1,0 +1,20 @@
+{
+  "name": "sns-reporter",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "A module that allow the sending of batch message with sns",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "Reporter",
+    "sns"
+  ],
+  "author": "Abel Kashoba",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-sns": "^3.758.0",
+    "beautify": "^0.0.8"
+  }
+}
